@@ -1,0 +1,64 @@
+{
+  "id": "de.doerg.kick2",
+  "display_name": "KICK2",
+  "category": "DBX",
+  "short_label": "K2",
+  "machine_version": "0.7",
+  "description": "Resonator-Kick nach doergbox KICK2 (Prinzip Volca Kick)",
+  "params": [
+    {
+      "name": "PTCH",
+      "default": 45,
+      "transform": "raw14"
+    },
+    {
+      "name": "BEND",
+      "default": 70,
+      "transform": "raw14"
+    },
+    {
+      "name": "BTIM",
+      "default": 40,
+      "transform": "raw14"
+    },
+    {
+      "name": "DCAY",
+      "default": 70,
+      "transform": "raw14"
+    },
+    {
+      "name": "PULS",
+      "default": 71,
+      "transform": "unipolar_q23"
+    },
+    {
+      "name": "COLR",
+      "default": 20,
+      "transform": "unipolar_q23"
+    },
+    {
+      "name": "DRIV",
+      "default": 0,
+      "transform": "unipolar_q23",
+      "value_text": [
+        {
+          "value": 0,
+          "text": "OFF"
+        }
+      ]
+    },
+    {
+      "name": "TONE",
+      "default": 110,
+      "transform": "raw14"
+    }
+  ],
+  "program": {
+    "x_workset_words": 32,
+    "y_workset_words": 32,
+    "relocations": [
+      "CLEAN_LOOP",
+      "DRIVE_LOOP"
+    ]
+  }
+}

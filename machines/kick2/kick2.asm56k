@@ -1,0 +1,445 @@
+; KICK2 – Resonator-Kick für die Machinedrum (MDS 1.1, DSP56303)
+; Prinzip der doergbox-KICK2 (Volca-Kick-Art): ein angestoßener, gestimmter
+; Resonator mit Tonhöhen-Bend und Ausklingzeit, dazu ein Klick/Rausch-Puls,
+; Drive und Tiefpass. Struktur wie machines/kick2/model/kick2_dsp.py.
+;
+; Resonator in Kreisform ("Magic Circle"), Zustände in 48 Bit, Maßstab 1/16:
+;   x1 = x1 - d*x1 - e*x2 + in     x2 = x2 - d*x2 + e*x1(neu)     Ausgang x1
+; d*x und e*x werden mit den oberen 24 Bit gerechnet und zum 48-Bit-Zustand
+; addiert: so bleibt auch die winzige Dämpfung langer DCAY-Werte wirksam.
+; e ~ 2*pi*f/fs (pro Block per 2^x, im Block linear interpoliert).
+; Der Ausgang wird bei Vollaussteuerung hart gekappt (Sättigung beim Speichern).
+;
+; Regler (Y:(r6+1..8)):
+;   1 PTCH raw14   30..150 Hz            5 PULS Q23   Pulsstärke
+;   2 BEND raw14   0..5 Oktaven          6 COLR Q23   Klick..Rauschen, Pulsdauer
+;   3 BTIM raw14   Bend-Zeit 3..300 ms   7 DRIV Q23   Sättigung, 0 = aus
+;   4 DCAY raw14   40..3000 ms (-40 dB)  8 TONE raw14 Tiefpass ~200 Hz..18 kHz
+;
+; Speicher (relativ zu R6; Ringpuffer-Basen sind passend ausgerichtet):
+;   X 0..14   Koeffiziententabelle, pro Sample einmal reihum gelesen (R0)
+;   L 16,17   Resonator x1, x2: X = obere, Y = untere 24 Bit (R1, Ring über 2)
+;   Y 20..22  Rauschen, Puls-Hüllkurve, Tiefpass (R4, Ring über 3)
+;   Y 24      e (R5)
+TRIGF   equ     9               ; Y: Trig wartet auf den nächsten RENDER
+ACTIVE  equ     10              ; Y: 0 = still
+QUIET   equ     11              ; Y: Blöcke in Folge fast still
+ENV     equ     12              ; Y: Bend-Hüllkurve 1..0
+E0      equ     13              ; Y: Zuwachs von e (Zwischenablage)
+TAV     equ     14              ; Y: Tiefpass-Koeffizient
+ROT     equ     15              ; Y: welcher Koeffizient in diesem Block neu berechnet wird (0..2)
+XS      equ     16              ; L: x1 (16), x2 (17)
+NOISE   equ     20              ; Y: Rauschgenerator (multiplikativ, mod 2^24)
+PENV    equ     21              ; Y: Puls-Hüllkurve 1..0
+LP      equ     22              ; Y: Tiefpass
+ECO     equ     24              ; Y: e, läuft im Block
+; Tabelle in X, Reihenfolge = Lesereihenfolge in der Schleife
+T_K     equ     0               ; Multiplikator des Rauschgenerators
+T_PC    equ     1               ; COLR
+T_P1    equ     2               ; 1 - COLR
+T_PCOEF equ     3               ; Puls-Abklingfaktor pro Sample
+T_PL    equ     4               ; PULS
+T_KP    equ     5               ; Puls in den Resonator
+T_MD    equ     6               ; -d
+T_KD    equ     7               ; Puls direkt
+T_TA    equ     8               ; ohne Drive: Tiefpass ... (mit Drive ab 11)
+T_LEN   equ     11              ; ohne Drive: TAPS..DE
+T_LEN_D equ     14              ; mit Drive: dazu DVU, -1/32, 3/32
+
+; Kurven: 2^E mit E/32 = C0 + C * Regler (Regler als Einstellung/128)
+C_E0    equ     $E08503         ; log2(2*pi*30/fs)/32
+C_EP    equ     $095C60         ; PTCH: log2(5)/32
+C_EB    equ     $142851         ; BEND*ENV: 5 Oktaven/32
+C_D0    equ     $DDACAB         ; DCAY: log2(ln100/(fs*40ms))/32
+C_DD    equ     $E6E377         ;       -log2(75)/32
+C_B0    equ     $F7CF30         ; BTIM: log2(32/(fs*3ms))/32
+C_BB    equ     $E5371F         ;       -log2(100)/32
+C_P0    equ     $E7CF30         ; Puls: log2(1/(fs*1,5ms))/32
+C_PP    equ     $F43EE0         ;       -log2(11,5/1,5)/32
+C_T0    equ     $EB62AB         ; TONE: log2(0,0281)/32
+C_TT    equ     $144FA9         ;       log2(0,923/0,0281)/32
+X2_C0   equ     $3FFDC6         ; 2^f/2 = C0 + f(C1 + f(C2 + f C3)), 0 <= f < 1 (Fehler < 0,25 Cent)
+X2_C1   equ     $2C8E0A
+X2_C2   equ     $0E74AF
+X2_C3   equ     $04FB0B
+K_IMP   equ     $080000         ; Grundanstoß 1,0 (Maßstab 1/16)
+K_PULSE equ     $0147AE         ; Puls in den Resonator 0,16/16
+K_DIRECT equ    $09999A         ; Puls direkt hörbar 1,2/16
+K_OUT   equ     $5C28F6         ; Ausgangspegel 0,72 (danach x16)
+THR_RES equ     $000106         ; |x1|+|x2| darunter gilt als still
+THR_PENV equ    $001062         ; Puls darunter gilt als verklungen
+NOISE_K equ     $19660D         ; Rauschen: s = s * 1664525 mod 2^24 (s ungerade)
+; Koeffizienten des Startpresets (INIT; danach reihum neu berechnet)
+D_MD    equ     $FFF815
+D_PC    equ     $140000
+D_P1    equ     $6C0000
+D_PCOEF equ     $7E97AC
+D_TA    equ     $4A0843
+
+        section KICK2
+
+; ---------------------------------------------------------------------------
+; Ein Sample. DRV = 1: mit Sättigung (Kennlinie 1,5u - 0,5u^3, u = y*dv/1,5 auf +-1 begrenzt). Register: R0 Tabelle, R1 Resonator,
+; R4 Rauschen/Puls/Tiefpass, R5 e, R7 Ausgang.
+SAMPLE  macro   DRV
+        move    x:(r0)+,x1      y:(r4),y0       ; Rauschen: X1 = K, Y0 = s
+        mpy     x1,y0,a         x:(r0)+,x0      ; A = 2*s*K, X0 = COLR
+        asr     a               x:(r0)+,x1      ; A0 = s*K mod 2^24, X1 = 1-COLR
+        move    a0,y:(r4)+
+        move    a0,y0                           ; Y0 = Rauschwert
+        mpy     x0,y0,a         y:(r4),y1       ; Y1 = PENV
+        add     x1,a            x:(r0)+,x0      ; A = Mischung, X0 = Abklingfaktor
+        mpy     x0,y1,b         x:(r0)+,x0      ; B = neue PENV, X0 = PULS
+        mpy     x0,y1,a         a,y0            ; A = PULS*PENV, Y0 = Mischung
+        move    b,y:(r4)+
+        move    a,x0
+        mpy     x0,y0,b         x:(r0)+,x1      ; B = Puls, X1 = K_PULSE
+        move    l:(r1),a                        ; A = x1 (48 Bit)
+        move    b,y1                            ; Y1 = Puls
+        mac     x1,y1,a         x:(r0)+,x0      y:(r5),y0       ; A = x1 + Anstoß, X0 = -d, Y0 = e
+        move    l:(r1+n1),b                     ; B = x2 (48 Bit)
+        move    a,x1
+        mac     x0,x1,a         x:(r1+n1),x1    ; A -= d*x1, X1 = x2 (oben)
+        mac     -x1,y0,a                        ; A -= e*x2  -> x1 neu
+        mac     x0,x1,b                         ; B -= d*x2
+        move    a10,l:(r1)+
+        move    a,x1                            ; X1 = x1 neu (oben)
+        mac     x1,y0,b         x:(r0)+,x0      ; B += e*x1  -> x2 neu, X0 = K_DIRECT
+        if      DRV
+        mac     x0,y1,a         x:(r0)+,x0      ; A = x1 + Puls direkt, X0 = DVU
+        move    b10,l:(r1)+
+        move    a,x1
+        mpy     x0,x1,a         x:(r0)+,x0      ; A = y*dv*(2/3)/16, X0 = -1/32
+        asl     #8,a,a                          ; u = y*dv/1,5 ...
+        move    x:(r0)+,x1                      ; X1 = 3/32
+        move    a,y0                            ; ... beim Kopieren auf +-1 begrenzt
+        mpy     y0,y0,a
+        tfr     x1,b
+        move    a,y1
+        mac     x0,y1,b         x:(r0)+,x0      y:(r4),y1       ; B = 3/32 - u^2/32, X0 = ta, Y1 = lp
+        move    b,x1
+        mpy     x1,y0,a                         ; A = (1,5u - 0,5u^3)/16
+        else
+        mac     x0,y1,a         x:(r0)+,x0      y:(r4),y1       ; A = x1 + Puls direkt, X0 = ta, Y1 = lp
+        move    b10,l:(r1)+
+        endif
+        sub     y1,a                            ; Tiefpass: lp += ta*(y - lp)
+        move    y:(r5),b                        ; B = e
+        move    a,x1
+        mpy     x0,x1,a         x:(r0)+,x0      ; X0 = K_OUT
+        add     y1,a            x:(r0)+,x1      ; A = lp neu, X1 = de
+        add     x1,b                            ; e += de
+        move    a,y:(r4)+
+        move    a,y1
+        mpy     x0,y1,a         b,y:(r5)
+        asl     #4,a,a                          ; x16, beim Speichern gesättigt
+        move    a,y:(r7)+
+        endm
+
+; ---------------------------------------------------------------------------
+INIT:
+        clr     a                       ; X/Y 9..31 löschen (Y 0..8 gehört der Firmware)
+        move    r6,b
+        add     #TRIGF,b
+        move    b1,r0
+        rep     #32-TRIGF
+        move    a,l:(r0)+
+        move    #>$5a5a5b,x0            ; ungerader Startwert
+        move    x0,y:(r6+NOISE)
+        ; feste Tabellenwerte und Koeffizienten des Startpresets
+        move    #>NOISE_K,x0
+        move    x0,x:(r6+T_K)
+        move    #>K_PULSE,x0
+        move    x0,x:(r6+T_KP)
+        move    #>K_DIRECT,x0
+        move    x0,x:(r6+T_KD)
+        move    #>D_MD,x0
+        move    x0,x:(r6+T_MD)
+        move    #>D_PC,x0
+        move    x0,x:(r6+T_PC)
+        move    #>D_P1,x0
+        move    x0,x:(r6+T_P1)
+        move    #>D_PCOEF,x0
+        move    x0,x:(r6+T_PCOEF)
+        move    #>D_TA,x0
+        move    x0,y:(r6+TAV)
+        rts
+
+TRIG:
+        move    #>1,x0
+        move    x0,y:(r6+TRIGF)
+        rts
+
+; ---------------------------------------------------------------------------
+RENDER:
+        movec   #>$ffffff,m6
+        bsr     >ROTATE                 ; einen der Koeffizienten DCAY/COLR/TONE neu
+        ; Trig: Hüllkurven auf 1, Grundanstoß in den Resonator
+        move    y:(r6+TRIGF),a
+        tst     a
+        beq     <NO_TRIG
+        move    #>$7fffff,x0
+        move    x0,y:(r6+ENV)
+        move    x0,y:(r6+PENV)
+        move    #>1,x0
+        move    x0,y:(r6+ACTIVE)
+        clr     a
+        move    a,y:(r6+TRIGF)
+        move    a,y:(r6+QUIET)
+        move    x:(r6+XS),a
+        move    #>K_IMP,x0
+        add     x0,a
+        move    a,x:(r6+XS)
+        move    #>$800000,x0            ; Merker: e springt in diesem Block direkt auf den Zielwert
+        move    x0,y:(r6+ECO)
+NO_TRIG:
+        move    y:(r6+ACTIVE),a
+        tst     a
+        beq     >SILENCE
+
+        ; Bend-Hüllkurve: ENV *= 1 - xb + xb^2/2 - xb^3/6
+        move    y:(r6+3),a
+        asl     #9,a,a
+        move    a1,x0
+        move    #>C_BB,y0
+        mpy     x0,y0,a
+        move    #>C_B0,x1
+        add     x1,a
+        bsr     >EXP2
+        move    a1,y0                   ; xb
+        move    #>$155555,x1            ; 1/6
+        mpy     x1,y0,a
+        move    #>$400000,b
+        sub     a,b
+        move    b,x1
+        mpy     x1,y0,a
+        move    #>$7fffff,b
+        sub     a,b
+        move    b,x1
+        mpy     x1,y0,a
+        move    #>$7fffff,b
+        sub     a,b
+        move    b,x1
+        move    y:(r6+ENV),y0
+        mpy     x1,y0,a
+        move    a,y:(r6+ENV)
+
+        ; e läuft vom Endwert des letzten Blocks (Y:ECO) zum neuen Endwert;
+        ; nach einem Trig (Merker < 0) beginnt e gleich beim neuen Endwert
+        bsr     >FREQ_EXP
+        bsr     >EXP2
+        move    y:(r6+ECO),b
+        tst     b
+        bge     <E_RUN
+        move    a1,y:(r6+ECO)
+E_RUN:
+        move    y:(r6+ECO),x0
+        sub     x0,a
+        asr     #5,a,a
+        move    a1,y:(r6+E0)            ; Zuwachs pro Sample, kommt unten in die Tabelle
+        move    y:(r6+5),x0             ; PULS
+        move    x0,x:(r6+T_PL)
+        move    y:(r6+TAV),a
+
+        ; Zeiger für die Schleife
+        move    #XS,n6
+        lua     (r6)+n6,r1              ; Resonator
+        movec   #1,m1
+        move    #1,n1
+        move    #NOISE,n6
+        lua     (r6)+n6,r4              ; Rauschen, PENV, Tiefpass
+        movec   #2,m4
+        move    #ECO,n6
+        lua     (r6)+n6,r5              ; e
+        move    r6,r0                   ; Tabelle
+
+        move    y:(r6+7),b              ; DRIV
+        tst     b
+        bne     >WITH_DRIVE
+
+        ; ohne Drive: ... KD, TA, K_OUT, DE
+        move    a1,x:(r6+T_TA)
+        move    #>K_OUT,x0
+        move    x0,x:(r6+T_TA+1)
+        move    y:(r6+E0),x0
+        move    x0,x:(r6+T_TA+2)
+        movec   #T_LEN-1,m0
+CLEAN_LOOP:
+        do      #32,CLEAN_END
+        SAMPLE  0
+CLEAN_END:
+        bra     >BLOCK_END
+
+WITH_DRIVE:
+        ; mit Drive: ... KD, DVU, -1/32, 3/32, TA, K_OUT, DE
+        move    a1,x:(r6+T_TA+3)
+        move    #>K_OUT,x0
+        move    x0,x:(r6+T_TA+4)
+        move    y:(r6+E0),x0
+        move    x0,x:(r6+T_TA+5)
+        move    b1,x0                   ; DVU = (1/16 + 15/16 * DRIV^2) * 2/3
+        mpy     x0,x0,a
+        move    a,x0
+        move    #>$780000,y0
+        mpy     x0,y0,a
+        move    #>$080000,x1
+        add     x1,a
+        move    a,x0
+        move    #>$555555,y0
+        mpy     x0,y0,a
+        move    a1,x:(r6+T_TA)
+        move    #>$FC0000,x0            ; -1/32
+        move    x0,x:(r6+T_TA+1)
+        move    #>$0C0000,x0            ; 3/32
+        move    x0,x:(r6+T_TA+2)
+        movec   #T_LEN_D-1,m0
+DRIVE_LOOP:
+        do      #32,DRIVE_END
+        SAMPLE  1
+DRIVE_END:
+
+BLOCK_END:
+        ; Still? |x1| + |x2| und Puls unter der Schwelle -> nach 8 Blöcken schlafen
+        move    x:(r6+XS),a
+        abs     a
+        move    x:(r6+XS+1),b
+        abs     b
+        add     b,a
+        move    #>THR_RES,x0
+        cmp     x0,a
+        bge     <LOUD
+        move    y:(r6+PENV),b
+        move    #>THR_PENV,x0
+        cmp     x0,b
+        bge     <LOUD
+        move    y:(r6+QUIET),a
+        add     #1,a
+        move    a1,y:(r6+QUIET)
+        move    #>8,x0
+        cmp     x0,a
+        ble     <DONE
+        clr     a
+        move    a,y:(r6+ACTIVE)
+        move    r6,b
+        add     #XS,b
+        move    b1,r0
+        movec   #$ffffff,m0
+        move    a,l:(r0)+
+        move    a,l:(r0)
+        move    a,y:(r6+LP)
+        rts
+LOUD:
+        clr     a
+        move    a,y:(r6+QUIET)
+DONE:
+        rts
+
+SILENCE:
+        clr     a
+        rep     #32
+        move    a,y:(r7)+
+        rts
+
+; ---------------------------------------------------------------------------
+; Reihum einen Koeffizienten neu berechnen (auch in stillen Blöcken)
+ROTATE:
+        move    y:(r6+ROT),a
+        tst     a
+        beq     <ROT_DCAY
+        move    #>1,x0
+        cmp     x0,a
+        beq     <ROT_COLR
+        clr     a                       ; 2: TONE -> ta = 2^E
+        move    a,y:(r6+ROT)
+        move    y:(r6+8),a
+        asl     #9,a,a
+        move    a1,x0
+        move    #>C_TT,y0
+        mpy     x0,y0,a
+        move    #>C_T0,x1
+        add     x1,a
+        bsr     >EXP2
+        move    a1,y:(r6+TAV)
+        rts
+ROT_DCAY:                               ; 0: DCAY -> -d = -2^E
+        move    #>1,x0
+        move    x0,y:(r6+ROT)
+        move    y:(r6+4),a
+        asl     #9,a,a
+        move    a1,x0
+        move    #>C_DD,y0
+        mpy     x0,y0,a
+        move    #>C_D0,x1
+        add     x1,a
+        bsr     >EXP2
+        neg     a
+        move    a1,x:(r6+T_MD)
+        rts
+ROT_COLR:                               ; 1: COLR -> Farbe, Abklingfaktor 1 - 2^E
+        move    #>2,x0
+        move    x0,y:(r6+ROT)
+        move    y:(r6+6),x0
+        move    x0,x:(r6+T_PC)
+        move    #>$7fffff,a
+        sub     x0,a
+        move    a1,x:(r6+T_P1)
+        move    #>C_PP,y0
+        mpy     x0,y0,a
+        move    #>C_P0,x1
+        add     x1,a
+        bsr     >EXP2
+        move    a1,x0
+        move    #>$7fffff,a
+        sub     x0,a
+        move    a1,x:(r6+T_PCOEF)
+        rts
+
+; ---------------------------------------------------------------------------
+; A1 = E/32 für die Resonatorfrequenz mit der aktuellen Hüllkurve ENV
+FREQ_EXP:
+        move    y:(r6+2),b
+        asl     #9,b,b
+        move    b1,x0                   ; BEND
+        move    y:(r6+ENV),y0
+        mpy     x0,y0,b
+        move    b,x0
+        move    #>C_EB,y0
+        mpy     x0,y0,a
+        move    y:(r6+1),b
+        asl     #9,b,b
+        move    b1,x0                   ; PTCH
+        move    #>C_EP,y0
+        mac     x0,y0,a
+        move    #>C_E0,x1
+        add     x1,a
+        rts
+
+; ---------------------------------------------------------------------------
+; A1 = 2^E für E/32 in A1, E < 0. Ergebnis Q23 in A1. Benutzt A, B, X0, X1, Y0, Y1.
+EXP2:
+        asl     #5,a,a                  ; A = E; Einerstelle ist Bit 47 (oberstes Bit von A1)
+        tfr     a,b
+        asr     #23,b,b                 ; B1 = n = ganzzahliger Teil (abgerundet)
+        move    b1,b                    ; B0 (Nachkommabits) löschen, sonst rundet NEG falsch
+        move    #>$7fffff,x0
+        and     x0,a                    ; A1 = f = Bruchteil, 0 <= f < 1
+        move    a1,y0
+        move    #>X2_C3,x1
+        mpy     y0,x1,a
+        move    #>X2_C2,x1
+        add     x1,a
+        move    a,x1
+        mpy     y0,x1,a
+        move    #>X2_C1,x1
+        add     x1,a
+        move    a,x1
+        mpy     y0,x1,a
+        move    #>X2_C0,x1
+        add     x1,a                    ; A = 2^f/2
+        add     #1,b                    ; Ergebnis = A * 2^(n+1), n+1 <= 0
+        neg     b
+        move    b1,y1
+        asr     y1,a,a
+        rts
+
+        endsec
