@@ -4,7 +4,7 @@ A USR machine for the Machinedrum running jmamma's MDX firmware **X.20**
 (Machine Dump Standard, MDS 1.1).
 
 DBX-K2 is a resonator kick drum in the spirit of the Korg Volca Kick, ported from my DIY
-groovebox (doergbox, Teensy 4.1, built on the [MicroDexed-touch](https://codeberg.org/positionhigh/MicroDexed-touch) firmware). Each trigger strikes a tuned resonator. Its pitch sweeps
+groovebox (doergbox, Teensy 4.1, built on the [MicroDexed-touch](https://codeberg.org/positionhigh/MicroDexed-touch) hardware, with my own firmware written from scratch). Each trigger strikes a tuned resonator. Its pitch sweeps
 down from a higher start, then it rings out like a struck drum skin – or, with HOLD, keeps
 ringing at full level and then cuts off. A short click adds the attack; a saturation stage
 (from gentle to brutal) and a lowpass shape the result. The initial transient is
@@ -138,7 +138,7 @@ Tested on Fedora Linux. You need Python 3.10+, CMake, a C++17 compiler, `patch` 
   tooling of this port (see "How this was made").
 - jmamma for the MDX firmware, the Machine Dump Standard and mds-tools.
 - positionhigh, developer of [MicroDexed-touch](https://codeberg.org/positionhigh/MicroDexed-touch),
-  the firmware my doergbox is built on – thanks and greetings!
+  the hardware my doergbox is built on – thanks and greetings!
 - The dsp56300 emulator project (used inside mds-certifier).
 
 ## License
