@@ -13,6 +13,25 @@ very hot settings clip briefly at the output.
 Runs on **MKI and MKII, on all 16 tracks**. Certified cycle counts per track and block:
 MKII 2,476 · MKI (DRAM) 2,807 · MKI (SRAM) 2,481. Tested on a MKII +Drive UW.
 
+## Status & known limitations
+
+This is my first USR machine and a first attempt – and honestly nothing special: just
+another kick for the Machinedrum, with its own flavour. Known weak spots:
+
+- **COLR** has too little audible effect; it will become more useful in the next version.
+- Comments in the source and tools are in **German**.
+- Tested on hardware so far on a single MKII +Drive UW; on MKI it is certified, not yet
+  played.
+
+## How this was made
+
+The sound design comes from the KICK2 of my doergbox groovebox. That machine grew over
+roughly 300 iterations in which I shaped how it should sound and behave – the resonator
+principle, the attack pulse, the character of the hard transient – developed together
+with AI. For this Machinedrum port I set the goals, made the sound decisions and tested on
+the hardware; [Claude Code](https://claude.com/claude-code) (Anthropic) wrote the DSP56303
+code, the Python models and the tooling, and ran the certification.
+
 ## Knobs
 
 | Knob | Function |
@@ -104,8 +123,8 @@ Tested on Fedora Linux. You need Python 3.10+, CMake, a C++17 compiler, `patch` 
 
 ## Credits
 
-- Developed together with [Claude Code](https://claude.com/claude-code) (Anthropic): DSP code,
-  models, tools and certification workflow were worked out in collaboration with Claude.
+- [Claude Code](https://claude.com/claude-code) (Anthropic) for the DSP code, models and
+  tooling of this port (see "How this was made").
 - jmamma for the MDX firmware, the Machine Dump Standard and mds-tools.
 - positionhigh, developer of [MicroDexed-touch](https://codeberg.org/positionhigh/MicroDexed-touch),
   the firmware my doergbox is built on – thanks and greetings!
