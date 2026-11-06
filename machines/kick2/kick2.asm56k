@@ -11,9 +11,9 @@
 ; Der Ausgang wird bei Vollaussteuerung hart gekappt (Sättigung beim Speichern).
 ;
 ; Regler (Y:(r6+1..8)):
-;   1 PTCH raw14   30..150 Hz            5 PULS Q23   Pulsstärke
-;   2 BEND raw14   0..5 Oktaven          6 COLR Q23   Klick..Rauschen, Pulsdauer
-;   3 BTIM raw14   Bend-Zeit 3..300 ms   7 DRIV Q23   Sättigung, 0 = aus
+;   1 PTCH raw14   38..160 Hz            5 PULS Q23   Pulsstärke
+;   2 BEND raw14   0..5 Oktaven          6 HOLD Q23^2 ungedämpfte Zeit nach dem Anschlag, 0..245 ms
+;   3 BTIM raw14   Bend-Zeit 3..300 ms   7 DRIV Q23   Sättigung (läuft immer; 0 = am weichsten)
 ;   4 DCAY raw14   40..3000 ms (-40 dB)  8 TONE raw14 Tiefpass ~200 Hz..18 kHz
 ;
 ; Speicher (relativ zu R6; Ringpuffer-Basen sind passend ausgerichtet):
@@ -27,16 +27,18 @@ QUIET   equ     11              ; Y: Blöcke in Folge fast still
 ENV     equ     12              ; Y: Bend-Hüllkurve 1..0
 E0      equ     13              ; Y: Zuwachs von e (Zwischenablage)
 TAV     equ     14              ; Y: Tiefpass-Koeffizient
-ROT     equ     15              ; Y: welcher Koeffizient in diesem Block neu berechnet wird (0..2)
+ROT     equ     15              ; Y: welcher Koeffizient in diesem Block neu berechnet wird (0, 1)
 XS      equ     16              ; L: x1 (16), x2 (17)
+HCNT    equ     18              ; Y: Blöcke, die der Resonator noch ungedämpft schwingt (HOLD)
+MDV     equ     19              ; Y: -d aus DCAY (in die Tabelle kommt -d oder 0 während HOLD)
 NOISE   equ     20              ; Y: Rauschgenerator (multiplikativ, mod 2^24)
 PENV    equ     21              ; Y: Puls-Hüllkurve 1..0
 LP      equ     22              ; Y: Tiefpass
 ECO     equ     24              ; Y: e, läuft im Block
 ; Tabelle in X, Reihenfolge = Lesereihenfolge in der Schleife
 T_K     equ     0               ; Multiplikator des Rauschgenerators
-T_PC    equ     1               ; COLR
-T_P1    equ     2               ; 1 - COLR
+T_PC    equ     1               ; Puls-Farbe (fest, wie früher COLR 20)
+T_P1    equ     2               ; 1 - Farbe
 T_PCOEF equ     3               ; Puls-Abklingfaktor pro Sample
 T_PL    equ     4               ; PULS
 T_KP    equ     5               ; Puls in den Resonator
@@ -47,15 +49,13 @@ T_LEN   equ     11              ; ohne Drive: TAPS..DE
 T_LEN_D equ     14              ; mit Drive: dazu DVU, -1/32, 3/32
 
 ; Kurven: 2^E mit E/32 = C0 + C * Regler (Regler als Einstellung/128)
-C_E0    equ     $E08503         ; log2(2*pi*30/fs)/32
-C_EP    equ     $095C60         ; PTCH: log2(5)/32
+C_E0    equ     $E1E23C         ; log2(2*pi*38/fs)/32
+C_EP    equ     $085C80         ; PTCH: log2(160/38)/32
 C_EB    equ     $142851         ; BEND*ENV: 5 Oktaven/32
 C_D0    equ     $DDACAB         ; DCAY: log2(ln100/(fs*40ms))/32
 C_DD    equ     $E6E377         ;       -log2(75)/32
 C_B0    equ     $F7CF30         ; BTIM: log2(32/(fs*3ms))/32
 C_BB    equ     $E5371F         ;       -log2(100)/32
-C_P0    equ     $E7CF30         ; Puls: log2(1/(fs*1,5ms))/32
-C_PP    equ     $F43EE0         ;       -log2(11,5/1,5)/32
 C_T0    equ     $EB62AB         ; TONE: log2(0,0281)/32
 C_TT    equ     $144FA9         ;       log2(0,923/0,0281)/32
 X2_C0   equ     $3FFDC6         ; 2^f/2 = C0 + f(C1 + f(C2 + f C3)), 0 <= f < 1 (Fehler < 0,25 Cent)
@@ -69,12 +69,13 @@ K_OUT   equ     $5C28F6         ; Ausgangspegel 0,72 (danach x16)
 THR_RES equ     $000106         ; |x1|+|x2| darunter gilt als still
 THR_PENV equ    $001062         ; Puls darunter gilt als verklungen
 NOISE_K equ     $19660D         ; Rauschen: s = s * 1664525 mod 2^24 (s ungerade)
-; Koeffizienten des Startpresets (INIT; danach reihum neu berechnet)
-D_MD    equ     $FFF815
+; INIT: feste Puls-Farbe (COLR 20) und Startwerte für DCAY/TONE (danach im Wechsel neu)
+K_HOLD  equ     $2B0000         ; HOLD-Blöcke = HOLD * 344/1024 * 1024 (HOLD 127: 338 Blöcke = 245 ms)
+D_MD    equ     $FFEA0A         ; Startpreset DCAY 40
 D_PC    equ     $140000
 D_P1    equ     $6C0000
 D_PCOEF equ     $7E97AC
-D_TA    equ     $4A0843
+D_TA    equ     $4085C5         ; Startpreset TONE 105
 
         section KICK2
 
@@ -83,8 +84,8 @@ D_TA    equ     $4A0843
 ; R4 Rauschen/Puls/Tiefpass, R5 e, R7 Ausgang.
 SAMPLE  macro   DRV
         move    x:(r0)+,x1      y:(r4),y0       ; Rauschen: X1 = K, Y0 = s
-        mpy     x1,y0,a         x:(r0)+,x0      ; A = 2*s*K, X0 = COLR
-        asr     a               x:(r0)+,x1      ; A0 = s*K mod 2^24, X1 = 1-COLR
+        mpy     x1,y0,a         x:(r0)+,x0      ; A = 2*s*K, X0 = Puls-Farbe
+        asr     a               x:(r0)+,x1      ; A0 = s*K mod 2^24, X1 = 1-Farbe
         move    a0,y:(r4)+
         move    a0,y0                           ; Y0 = Rauschwert
         mpy     x0,y0,a         y:(r4),y1       ; Y1 = PENV
@@ -154,7 +155,7 @@ INIT:
         move    #>K_DIRECT,x0
         move    x0,x:(r6+T_KD)
         move    #>D_MD,x0
-        move    x0,x:(r6+T_MD)
+        move    x0,y:(r6+MDV)
         move    #>D_PC,x0
         move    x0,x:(r6+T_PC)
         move    #>D_P1,x0
@@ -173,7 +174,7 @@ TRIG:
 ; ---------------------------------------------------------------------------
 RENDER:
         movec   #>$ffffff,m6
-        bsr     >ROTATE                 ; einen der Koeffizienten DCAY/COLR/TONE neu
+        bsr     >ROTATE                 ; DCAY oder TONE neu (im Wechsel)
         ; Trig: Hüllkurven auf 1, Grundanstoß in den Resonator
         move    y:(r6+TRIGF),a
         tst     a
@@ -186,10 +187,15 @@ RENDER:
         clr     a
         move    a,y:(r6+TRIGF)
         move    a,y:(r6+QUIET)
-        move    x:(r6+XS),a
+        move    x:(r6+XS),a             ; Grundanstoß
         move    #>K_IMP,x0
         add     x0,a
         move    a,x:(r6+XS)
+        move    y:(r6+6),x0             ; HOLD (quadratisch, Q23) -> Blockzähler
+        move    #>K_HOLD,y0
+        mpy     x0,y0,a
+        asr     #13,a,a
+        move    a1,y:(r6+HCNT)
         move    #>$800000,x0            ; Merker: e springt in diesem Block direkt auf den Zielwert
         move    x0,y:(r6+ECO)
 NO_TRIG:
@@ -239,6 +245,18 @@ E_RUN:
         move    a1,y:(r6+E0)            ; Zuwachs pro Sample, kommt unten in die Tabelle
         move    y:(r6+5),x0             ; PULS
         move    x0,x:(r6+T_PL)
+        ; Dämpfung: während HOLD 0, sonst -d
+        move    y:(r6+HCNT),b
+        tst     b
+        beq     <NO_HOLD
+        sub     #1,b
+        move    b1,y:(r6+HCNT)
+        clr     b
+        bra     <SET_MD
+NO_HOLD:
+        move    y:(r6+MDV),b
+SET_MD:
+        move    b1,x:(r6+T_MD)
         move    y:(r6+TAV),a
 
         ; Zeiger für die Schleife
@@ -253,25 +271,10 @@ E_RUN:
         lua     (r6)+n6,r5              ; e
         move    r6,r0                   ; Tabelle
 
-        move    y:(r6+7),b              ; DRIV
-        tst     b
-        bne     >WITH_DRIVE
-
-        ; ohne Drive: ... KD, TA, K_OUT, DE
-        move    a1,x:(r6+T_TA)
-        move    #>K_OUT,x0
-        move    x0,x:(r6+T_TA+1)
-        move    y:(r6+E0),x0
-        move    x0,x:(r6+T_TA+2)
-        movec   #T_LEN-1,m0
-CLEAN_LOOP:
-        do      #32,CLEAN_END
-        SAMPLE  0
-CLEAN_END:
-        bra     >BLOCK_END
-
+        move    y:(r6+7),b              ; DRIV (Sättigung läuft immer: bei DRIV 0 nur weich,
+                                        ; sonst würde der Ausgang hart kappen)
 WITH_DRIVE:
-        ; mit Drive: ... KD, DVU, -1/32, 3/32, TA, K_OUT, DE
+        ; Tabelle: ... KD, DVU, -1/32, 3/32, TA, K_OUT, DE
         move    a1,x:(r6+T_TA+3)
         move    #>K_OUT,x0
         move    x0,x:(r6+T_TA+4)
@@ -346,10 +349,7 @@ ROTATE:
         move    y:(r6+ROT),a
         tst     a
         beq     <ROT_DCAY
-        move    #>1,x0
-        cmp     x0,a
-        beq     <ROT_COLR
-        clr     a                       ; 2: TONE -> ta = 2^E
+        clr     a                       ; 1: TONE -> ta = 2^E
         move    a,y:(r6+ROT)
         move    y:(r6+8),a
         asl     #9,a,a
@@ -373,25 +373,7 @@ ROT_DCAY:                               ; 0: DCAY -> -d = -2^E
         add     x1,a
         bsr     >EXP2
         neg     a
-        move    a1,x:(r6+T_MD)
-        rts
-ROT_COLR:                               ; 1: COLR -> Farbe, Abklingfaktor 1 - 2^E
-        move    #>2,x0
-        move    x0,y:(r6+ROT)
-        move    y:(r6+6),x0
-        move    x0,x:(r6+T_PC)
-        move    #>$7fffff,a
-        sub     x0,a
-        move    a1,x:(r6+T_P1)
-        move    #>C_PP,y0
-        mpy     x0,y0,a
-        move    #>C_P0,x1
-        add     x1,a
-        bsr     >EXP2
-        move    a1,x0
-        move    #>$7fffff,a
-        sub     x0,a
-        move    a1,x:(r6+T_PCOEF)
+        move    a1,y:(r6+MDV)
         rts
 
 ; ---------------------------------------------------------------------------

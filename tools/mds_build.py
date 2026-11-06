@@ -6,7 +6,8 @@
   tools/mds_build.py machines/kick2 --certify --slot 1   zusätzlich .syx für USR-Slot 1
   tools/mds_build.py --verify                       Toolchain gegen jmammas Beispiele prüfen
 
-Erwartet im Ordner <name>.asm56k und <name>.json; Ausgabe nach build/<name>/.
+Erwartet im Ordner <name>.asm56k und <name>.json, optional <name>.pbm (Logo 32x24);
+Ausgabe nach build/<name>/.
 Pfade zu den Werkzeugen über Umgebungsvariablen anpassbar:
   MDS_WINEPREFIX  (Standard ~/dsp-tools/wine-symphony)
   MDS_DSP_TOOLS   (Standard <prefix>/drive_c/Symphony-Studio/dsp56720-devtools/dist/gcc/bin)
@@ -57,8 +58,10 @@ def assemble(src, out_stem):
     return cld, text
 
 
-def pack(definition, cld, mds, certify=False, report=None, max_cycles=None):
+def pack(definition, cld, mds, certify=False, report=None, max_cycles=None, bitmap=None):
     cmd = [sys.executable, PACK, definition, cld, "--format", "cld", "--dsp-tools", DSP_TOOLS, "-o", mds]
+    if bitmap:
+        cmd += ["--bitmap", bitmap]
     if certify:
         cmd += ["--certify", "--certifier", CERTIFIER]
         if report:
@@ -116,8 +119,9 @@ def main():
     cld, msg = assemble(src, out)
     if msg:
         print(msg)
+    bitmap = os.path.join(a.machine, name + ".pbm")      # Logo (32x24, PBM P1), falls vorhanden
     r = pack(definition, cld, out + ".mds", certify=a.certify, report=out + ".report.json" if a.certify else None,
-             max_cycles=None if a.certify else 1)
+             max_cycles=None if a.certify else 1, bitmap=bitmap if os.path.exists(bitmap) else None)
     print((r.stdout + r.stderr).strip())
     if a.slot is not None:
         if not a.certify:

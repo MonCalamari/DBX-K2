@@ -5,7 +5,7 @@ import math, os, subprocess, sys, tempfile, wave
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "machines", "kick2", "model"))
 import kick2_dsp as D  # noqa: E402
-NAMES = ["PTCH", "BEND", "BTIM", "DCAY", "PULS", "COLR", "DRIV", "TONE"]
+NAMES = ["PTCH", "BEND", "BTIM", "DCAY", "PULS", "HOLD", "DRIV", "TONE"]
 params = {n.upper(): int(v) for n, v in (a.split("=") for a in sys.argv[1:])}
 with tempfile.TemporaryDirectory() as tmp:
     wav = os.path.join(tmp, "e.wav")

@@ -3,53 +3,47 @@
   "display_name": "KICK2",
   "category": "DBX",
   "short_label": "K2",
-  "machine_version": "0.7",
-  "description": "Resonator-Kick nach doergbox KICK2 (Prinzip Volca Kick)",
+  "machine_version": "0.9",
+  "description": "Resonator kick for hard EBM / industrial (doergbox KICK2 principle, Volca-Kick style)",
   "params": [
     {
       "name": "PTCH",
-      "default": 45,
+      "default": 33,
       "transform": "raw14"
     },
     {
       "name": "BEND",
-      "default": 70,
+      "default": 75,
       "transform": "raw14"
     },
     {
       "name": "BTIM",
-      "default": 40,
+      "default": 20,
       "transform": "raw14"
     },
     {
       "name": "DCAY",
-      "default": 70,
+      "default": 40,
       "transform": "raw14"
     },
     {
       "name": "PULS",
-      "default": 71,
+      "default": 100,
       "transform": "unipolar_q23"
     },
     {
-      "name": "COLR",
-      "default": 20,
-      "transform": "unipolar_q23"
+      "name": "HOLD",
+      "default": 50,
+      "transform": "unipolar_square_q23"
     },
     {
       "name": "DRIV",
-      "default": 0,
-      "transform": "unipolar_q23",
-      "value_text": [
-        {
-          "value": 0,
-          "text": "OFF"
-        }
-      ]
+      "default": 70,
+      "transform": "unipolar_q23"
     },
     {
       "name": "TONE",
-      "default": 110,
+      "default": 105,
       "transform": "raw14"
     }
   ],
@@ -57,7 +51,6 @@
     "x_workset_words": 32,
     "y_workset_words": 32,
     "relocations": [
-      "CLEAN_LOOP",
       "DRIVE_LOOP"
     ]
   }

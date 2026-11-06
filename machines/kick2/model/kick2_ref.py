@@ -33,6 +33,9 @@ HEADROOM = 0.434      # schlimmster Fall ohne DRIV ≈ −1 dBFS, Startpreset �
 # Startpreset = Defaults aus kick2.json
 DEFAULTS = {"PTCH": 45, "BEND": 70, "BTIM": 40, "DCAY": 70,
             "PULS": 71, "COLR": 20, "DRIV": 0, "TONE": 110}
+# Machinedrum-Version ab 0.8: COLR fest auf 20, an seiner Stelle HOLD (0 = wie bisher)
+DEFAULTS_MD = {"PTCH": 33, "BEND": 75, "BTIM": 20, "DCAY": 40,     # ab 0.9: EBM-Startpreset,
+               "PULS": 100, "HOLD": 50, "DRIV": 70, "TONE": 105}  # PTCH 38..160 Hz
 
 
 def map_exp(v, a, b):

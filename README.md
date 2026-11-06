@@ -5,20 +5,19 @@ A USR machine for the Machinedrum running jmamma's MDX firmware **X.20**
 
 DBX-K2 is a resonator kick drum in the spirit of the Korg Volca Kick, ported from my DIY
 groovebox (doergbox, Teensy 4.1, built on the [MicroDexed-touch](https://codeberg.org/positionhigh/MicroDexed-touch) firmware). Each trigger strikes a tuned resonator. Its pitch sweeps
-down from a higher start, then it rings out like a struck drum skin. A short click or noise
-burst adds the attack, and an optional saturation stage and lowpass shape the result. The
-initial transient is intentionally hard and punchy: the resonator starts at full swing, and
-very hot settings clip briefly at the output.
+down from a higher start, then it rings out like a struck drum skin – or, with HOLD, keeps
+ringing at full level and then cuts off. A short click adds the attack; a saturation stage
+(from gentle to brutal) and a lowpass shape the result. The initial transient is
+intentionally hard and punchy: the resonator starts at full swing.
 
 Runs on **MKI and MKII, on all 16 tracks**. Certified cycle counts per track and block:
-MKII 2,476 · MKI (DRAM) 2,807 · MKI (SRAM) 2,481. Tested on a MKII +Drive UW.
+MKII 2,508 · MKI (DRAM) 2,850 · MKI (SRAM) 2,513. Tested on a MKII +Drive UW.
 
 ## Status & known limitations
 
 This is my first USR machine and a first attempt – and honestly nothing special: just
 another kick for the Machinedrum, with its own flavour. Known weak spots:
 
-- **COLR** has too little audible effect; it will become more useful in the next version.
 - Comments in the source and tools are in **German**.
 - Tested on hardware so far on a single MKII +Drive UW; on MKI it is certified, not yet
   played.
@@ -36,18 +35,22 @@ code, the Python models and the tooling, and ran the certification.
 
 | Knob | Function |
 |---|---|
-| **PTCH** | Base pitch of the resonator, 30–150 Hz |
+| **PTCH** | Base pitch of the resonator, 38–160 Hz |
 | **BEND** | Depth of the pitch sweep at the start, 0–5 octaves above PTCH |
 | **BTIM** | Speed of the pitch sweep, 3–300 ms |
 | **DCAY** | Ring-out time of the resonator, 40 ms to 3 s (to −40 dB) |
 | **PULS** | Strength of the attack pulse. It is heard directly and also pushes the resonator for extra punch |
-| **COLR** | Character of the attack pulse: from a short click (0) to a longer noise burst (127), 1.5–11.5 ms |
-| **DRIV** | Saturation, from off (0) to heavily driven |
+| **HOLD** | Time after the hit during which the resonator rings on at full level before DCAY takes over, 0 to ~245 ms. Gives a fat, pressed, gated punch; 0 = classic decay |
+| **DRIV** | Saturation, from gentle (0) to heavily driven. The soft saturation is always on and catches the peaks |
 | **TONE** | Lowpass filter, roughly 200 Hz to 18 kHz |
 
-Tips: Low PTCH with BEND 0 and long DCAY gives a deep, booming sub that is easy to
-overdrive. High BEND with short BTIM gives zappy electro kicks. High COLR with a little BEND
-makes noisy, industrial attacks. Raise DRIV for dirt on purpose.
+Made for hard modern EBM, industrial and dark techno on big systems. The default sound is a
+short, pressed, driven kick (PTCH 33 ≈ 55 Hz, BEND 75, BTIM 20, DCAY 40, PULS 100, HOLD 50,
+DRIV 70, TONE 105).
+
+Tips: A little HOLD with a short DCAY gives a fat, boxy kick that cuts off cleanly – add DRIV
+for brutal. High BEND with short BTIM gives zappy electro kicks. Low PTCH with BEND 0 and long
+DCAY gives a deep, booming sub.
 
 ## Installation
 
@@ -77,6 +80,7 @@ runs directly on the DSP.
 |---|---|
 | `machines/kick2/kick2.asm56k` | DSP56303 source |
 | `machines/kick2/kick2.json` | MDS machine definition (parameters, memory, relocations) |
+| `machines/kick2/kick2.pbm` | Machine logo, 32 × 24 pixels |
 | `machines/kick2/model/kick2_ref.py` | Floating-point reference of the original doergbox KICK2 |
 | `machines/kick2/model/kick2_dsp.py` | Model with the same structure as the DSP code |
 | `tools/mds_build.py` | Assemble, package, certify, create SysEx |
@@ -117,9 +121,10 @@ Tested on Fedora Linux. You need Python 3.10+, CMake, a C++17 compiler, `patch` 
 - Resonator in "magic circle" form with 48-bit states: decay and frequency are separate,
   and even very long decays keep fading instead of getting stuck in rounding.
 - Pitch sweep envelope per block, frequency interpolated linearly within the block.
-- All knob curves come from one cubic 2^x routine (error < 0.25 cent); decay, pulse and
-  tone coefficients are recomputed in rotation, one per block.
-- Saturation uses the DSP's limiter plus a cubic curve (1.5u − 0.5u³).
+- All knob curves come from one cubic 2^x routine (error < 0.25 cent); decay and tone
+  coefficients are recomputed in alternation, one per block.
+- HOLD sets the resonator's damping to zero for a number of blocks after the hit.
+- Saturation uses the DSP's limiter plus a cubic curve (1.5u − 0.5u³); it is always on.
 
 ## Credits
 
@@ -133,3 +138,9 @@ Tested on Fedora Linux. You need Python 3.10+, CMake, a C++17 compiler, `patch` 
 ## License
 
 GPL-3.0 – see [LICENSE](LICENSE). The submodules keep their own licenses.
+
+## Changelog
+
+- **0.9** – COLR replaced by **HOLD**; PTCH range 38–160 Hz; new default sound for EBM;
+  saturation always on (DRIV 0 used to hard-clip the output); machine logo.
+- **0.7** – first public release.
