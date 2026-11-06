@@ -25,10 +25,10 @@ another kick for the Machinedrum, with its own flavour. Known weak spots:
 
 ## How this was made
 
-The sound design comes from the KICK2 of my doergbox groovebox. That machine grew over
-roughly 300 iterations in which I shaped how it should sound and behave – the resonator
-principle, the attack pulse, the character of the hard transient – developed together
-with AI. For this Machinedrum port I set the goals, made the sound decisions and tested on
+The sound design comes from the KICK2 of my doergbox groovebox. The groovebox has grown
+over more than 300 iterations, developed together with AI, and the KICK2 is one of its
+machines: over that time I shaped how it should sound and behave – the resonator
+principle, the attack pulse, the character of the hard transient. For this Machinedrum port I set the goals, made the sound decisions and tested on
 the hardware; [Claude Code](https://claude.com/claude-code) (Anthropic) wrote the DSP56303
 code, the Python models and the tooling, and ran the certification.
 
