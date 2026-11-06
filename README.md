@@ -58,28 +58,6 @@ Tips: A little HOLD with a short DCAY gives a fat, boxy kick that cuts off clean
 for brutal. High BEND with short BTIM gives zappy electro kicks. Low PTCH with BEND 0 and long
 DCAY gives a deep, booming sub.
 
-## Installation
-
-Download the files from the [Releases](../../releases) page:
-
-- `kick2-<version>.slot1.syx` – ready to send, installs to **USR slot 01** (overwrites
-  whatever is there).
-- `kick2-<version>.mds` – the certified package, if you want to create a SysEx file for
-  another slot: `python3 vendor/mds-tools/tools/mds_to_syx.py kick2-<version>.mds --slot N`.
-
-The transfer is acknowledged message by message, so leave a short pause between SysEx
-messages, e.g. on Linux:
-
-```sh
-amidi -l
-amidi -p hw:1,0,0 -s kick2-0.7.slot1.syx -i 300
-```
-
-A failed transfer never replaces the machine already installed in a slot.
-
-As jmamma points out: only install MDS machines from developers you trust – machine code
-runs directly on the DSP.
-
 ## Repository layout
 
 | Path | Content |
@@ -95,32 +73,6 @@ runs directly on the DSP.
 | `vendor/MDS`, `vendor/mds-tools` | jmamma's specification and tools (git submodules) |
 
 Comments in the source and tools are in German.
-
-## Building
-
-Tested on Fedora Linux. You need Python 3.10+, CMake, a C++17 compiler, `patch` and Wine.
-
-1. Clone with submodules:
-   `git clone --recurse-submodules https://github.com/MonCalamari/DBX-K2.git`
-2. Assembler: install NXP **Symphony Studio** (Windows installer, contains `asm56300.exe`
-   and `cldlod.exe`) under Wine. It is proprietary and not part of this repository.
-   `tools/mds_build.py` looks for it in the Wine prefix `~/dsp-tools/wine-symphony`;
-   override with `MDS_WINEPREFIX` or `MDS_DSP_TOOLS`.
-   `python3 tools/mds_build.py --verify` checks the toolchain against jmamma's example
-   machines (all must be byte-identical).
-3. Certifier (on Linux, the emulator build needs two extra include paths):
-   ```sh
-   cmake -S vendor/mds-tools -B vendor/mds-tools/build -DCMAKE_BUILD_TYPE=Release \
-         -DCMAKE_CXX_FLAGS="-I$PWD/vendor/mds-tools/external/dsp56300/source"
-   cmake --build vendor/mds-tools/build -j"$(nproc)"   # stops at vtuneSdk the first time
-   ln -sfn "$PWD/vendor/mds-tools/external/dsp56300/source/vtuneSdk" \
-           vendor/mds-tools/build/certifier/dsp56300/source/vtuneSdk
-   cmake --build vendor/mds-tools/build -j"$(nproc)"
-   ```
-4. Build, certify (takes a while) and create the SysEx file for slot 1:
-   `python3 tools/mds_build.py machines/kick2 --certify --slot 1` → `build/kick2/`
-5. Optional, to listen without hardware: `tools/render/build.sh`, then
-   `tools/render/mds-render build/kick2/kick2.mds out.wav -p 6=90` (parameter index = value).
 
 ## How it works (short)
 
