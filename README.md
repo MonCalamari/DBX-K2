@@ -13,6 +13,12 @@ intentionally hard and punchy: the resonator starts at full swing.
 Runs on **MKI and MKII, on all 16 tracks**. Certified cycle counts per track and block:
 MKII 2,508 · MKI (DRAM) 2,850 · MKI (SRAM) 2,513. Tested on a MKII +Drive UW.
 
+🔊 Sound example (0.9): [dbx-k2-0.9-example.mp3](https://github.com/MonCalamari/DBX-K2/releases/download/kick2-v0.9/dbx-k2-0.9-example.mp3)
+– a quick recording straight from a Machinedrum MKII: the default sound first, then some
+knob turning. Not polished and not always in time, but it gives an idea of the sound. No
+filter, no EQ, no other processing on the Machinedrum or afterwards – only the level was
+raised.
+
 ## Status & known limitations
 
 This is my first USR machine and a first attempt – and honestly nothing special: just
